@@ -1,18 +1,15 @@
-import os, json, requests, re
+import os, json, requests, re, time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# ── Week label (Thursday-based, MDT) ──────────────────────────
 def get_week_label():
     mdt = datetime.now(ZoneInfo("America/Edmonton"))
-    # Roll back to this Thursday
-    days_back = (mdt.weekday() - 3) % 7  # 3 = Thursday
+    days_back = (mdt.weekday() - 3) % 7
     thursday = mdt - timedelta(days=days_back)
     sunday = thursday + timedelta(days=6)
     fmt = lambda d: d.strftime("%b %-d")
     return f"{fmt(thursday)} – {fmt(sunday)}"
 
-# ── Gemini call ───────────────────────────────────────────────
 def generate_horoscopes(week_label):
     api_key = os.environ["GEMINI_API_KEY"]
     prompt = f"""You are a mystical, poetic astrologer writing weekly horoscopes for a community newspaper.
@@ -28,36 +25,43 @@ Rules:
 Return ONLY valid JSON, no markdown, no code blocks:
 {{"Aries":"...","Taurus":"...","Gemini":"...","Cancer":"...","Leo":"...","Virgo":"...","Libra":"...","Scorpio":"...","Sagittarius":"...","Capricorn":"...","Aquarius":"...","Pisces":"..."}}"""
 
-    res = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
-        headers={"Content-Type": "application/json"},
-        json={"contents": [{"parts": [{"text": prompt}]}],
-              "generationConfig": {"temperature": 0.9, "maxOutputTokens": 1500}},
-        timeout=30
-    )
-    res.raise_for_status()
-    text = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    text = re.sub(r'^```json\s*', '', text)
-    text = re.sub(r'^```\s*', '', text)
-    text = re.sub(r'\s*```$', '', text).strip()
-    return json.loads(text)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.9, "maxOutputTokens": 1500}
+    }
 
-# ── Inject into index.html ────────────────────────────────────
+    for attempt in range(6):
+        print(f"Attempt {attempt+1}/6...")
+        try:
+            res = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
+        except Exception as e:
+            print(f"Request failed: {e}")
+            time.sleep(20)
+            continue
+
+        if res.status_code == 429:
+            wait = 20 + (attempt * 15)
+            print(f"Rate limited (429), waiting {wait}s...")
+            time.sleep(wait)
+            continue
+
+        res.raise_for_status()
+        text = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        text = re.sub(r'^```json\s*', '', text)
+        text = re.sub(r'^```\s*', '', text)
+        text = re.sub(r'\s*```$', '', text).strip()
+        return json.loads(text)
+
+    raise Exception("Gemini API rate limit exceeded after 6 attempts")
+
 SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
          "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
 
 def inject(readings, week_label):
     with open("index.html", "r") as f:
         html = f.read()
-
-    # Update week badge
-    html = re.sub(
-        r'(id="weekBadge"[^>]*>)([^<]*)',
-        f'\\1✦ {week_label} ✦',
-        html
-    )
-
-    # Update each reading — replace content between data-sign markers
+    html = re.sub(r'(id="weekBadge"[^>]*>)([^<]*)', f'\\1✦ {week_label} ✦', html)
     for sign in SIGNS:
         reading = readings.get(sign, "")
         reading_escaped = reading.replace('"', '&quot;')
@@ -66,7 +70,6 @@ def inject(readings, week_label):
             rf'\g<1>{reading_escaped}\2',
             html
         )
-
     with open("index.html", "w") as f:
         f.write(html)
     print(f"✦ Updated horoscope for {week_label}")
