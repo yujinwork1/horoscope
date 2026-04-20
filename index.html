@@ -246,14 +246,61 @@ hero.addEventListener('mousemove',e=>{
   if(Math.hypot(mx-ltx,my-lty)>10){ltx=mx;lty=my;for(let i=0;i<2;i++){const p=document.createElement('div');p.className='trail';const sz=Math.random()*6+2,c=TC[Math.floor(Math.random()*TC.length)],dur=0.35+Math.random()*0.3;p.style.cssText=`width:${sz}px;height:${sz}px;left:${mx}px;top:${my}px;background:${c}${0.6+Math.random()*0.3});--dur:${dur}s;`;hero.appendChild(p);setTimeout(()=>p.remove(),dur*1000+100);}}
 });
 hero.addEventListener('mouseleave',()=>{glow.style.opacity='0';dot.style.opacity='0';rings.forEach(rr=>{rr.style.left='50%';rr.style.top='50%';});});
-hero.addEventListener('click',e=>{
-  const r=hero.getBoundingClientRect(),cx=e.clientX-r.left,cy=e.clientY-r.top;
+// ── Burst effect (shared by click + touch) ──────────────────
+function burst(cx,cy){
   const angle=(20+Math.random()*20)*Math.PI/180;
   for(let i=0;i<8;i++){const a=angle+(Math.random()*0.3-0.15),spd=3+Math.random()*5;meteors.push({x:cx,y:cy,vx:Math.cos(a)*spd*(0.7+Math.random()*0.6),vy:Math.sin(a)*spd*(0.7+Math.random()*0.6),tailLen:40+Math.random()*60,brightness:0.9,width:0.8+Math.random()*0.8,frame:0,maxLife:55+Math.random()*30});}
   for(let i=0;i<4;i++){const rip=document.createElement('div');rip.style.cssText=`position:absolute;border-radius:50%;border:1px solid rgba(210,130,255,${0.8-i*0.15});width:6px;height:6px;left:${cx}px;top:${cy}px;transform:translate(-50%,-50%);pointer-events:none;z-index:20;animation:ripple-anim ${0.55+i*0.18}s ${i*0.1}s ease-out forwards;`;hero.appendChild(rip);setTimeout(()=>rip.remove(),1200);}
   const sc=['rgba(220,160,255,','rgba(255,130,200,','rgba(160,180,255,','rgba(255,220,255,'];
   for(let i=0;i<20;i++){const sp=document.createElement('div');sp.className='spark';const a2=(i/20)*Math.PI*2,dist=40+Math.random()*70,c=sc[Math.floor(Math.random()*sc.length)],sd=0.4+Math.random()*0.3;sp.style.cssText=`left:${cx}px;top:${cy}px;background:${c}0.95);transform:translate(-50%,-50%);--tx:${Math.cos(a2)*dist}px;--ty:${Math.sin(a2)*dist}px;--sd:${sd}s;`;hero.appendChild(sp);setTimeout(()=>sp.remove(),900);}
+}
+hero.addEventListener('click',e=>{
+  const r=hero.getBoundingClientRect();
+  burst(e.clientX-r.left, e.clientY-r.top);
 });
+
+// ── Touch interactions ───────────────────────────────────────
+let lastTouchX=0,lastTouchY=0;
+hero.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  const r=hero.getBoundingClientRect();
+  Array.from(e.changedTouches).forEach(t=>{
+    const tx=t.clientX-r.left,ty=t.clientY-r.top;
+    lastTouchX=tx;lastTouchY=ty;
+    burst(tx,ty);
+    // glow follows touch
+    glow.style.left=t.clientX+'px';glow.style.top=t.clientY+'px';glow.style.opacity='1';
+  });
+},{passive:false});
+
+hero.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const r=hero.getBoundingClientRect();
+  Array.from(e.changedTouches).forEach(t=>{
+    const tx=t.clientX-r.left,ty=t.clientY-r.top;
+    // glow follows finger
+    glow.style.left=t.clientX+'px';glow.style.top=t.clientY+'px';glow.style.opacity='1';
+    // parallax rings
+    const cx=r.width/2,cy=r.height/2,dx=(tx-cx)/cx,dy=(ty-cy)/cy;
+    const off=[5,10,3,14,2];
+    rings.forEach((rr,i)=>{rr.style.left=(50+dx*off[i])+'%';rr.style.top=(50+dy*off[i])+'%';});
+    // trail particles
+    if(Math.hypot(tx-lastTouchX,ty-lastTouchY)>8){
+      lastTouchX=tx;lastTouchY=ty;
+      for(let i=0;i<3;i++){
+        const p=document.createElement('div');p.className='trail';
+        const sz=Math.random()*7+3,c=TC[Math.floor(Math.random()*TC.length)],dur=0.4+Math.random()*0.3;
+        p.style.cssText=`width:${sz}px;height:${sz}px;left:${tx}px;top:${ty}px;background:${c}${0.7+Math.random()*0.3});--dur:${dur}s;`;
+        hero.appendChild(p);setTimeout(()=>p.remove(),dur*1000+100);
+      }
+    }
+  });
+},{passive:false});
+
+hero.addEventListener('touchend',()=>{
+  glow.style.opacity='0';
+  rings.forEach(rr=>{rr.style.left='50%';rr.style.top='50%';});
+},{passive:false});
 </script>
 </body>
 </html>
