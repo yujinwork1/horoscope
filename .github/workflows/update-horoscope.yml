@@ -1,0 +1,34 @@
+name: Update Weekly Horoscope
+
+on:
+  schedule:
+    - cron: '0 13 * * 4'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate horoscopes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scripts/generate.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "Horoscope Bot"
+          git config user.email "bot@meridiansource.ca"
+          git add index.html
+          git diff --staged --quiet || git commit -m "✦ Weekly horoscope update $(date +'%Y-%m-%d')"
+          git push
