@@ -1,4 +1,4 @@
-import os, json, requests, re, time
+import os, json, re, time, requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -11,7 +11,7 @@ def get_week_label():
     return f"{fmt(thursday)} – {fmt(sunday)}"
 
 def generate_horoscopes(week_label):
-    api_key = os.environ["GEMINI_API_KEY"]
+    api_key = os.environ["GROQ_API_KEY"]
     prompt = f"""You are a mystical, poetic astrologer writing weekly horoscopes for a community newspaper.
 Generate horoscopes for all 12 zodiac signs for the week of {week_label}.
 
@@ -25,35 +25,43 @@ Rules:
 Return ONLY valid JSON, no markdown, no code blocks:
 {{"Aries":"...","Taurus":"...","Gemini":"...","Cancer":"...","Leo":"...","Virgo":"...","Libra":"...","Scorpio":"...","Sagittarius":"...","Capricorn":"...","Aquarius":"...","Pisces":"..."}}"""
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.9, "maxOutputTokens": 1500}
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.9,
+        "max_tokens": 1500
     }
 
-    for attempt in range(6):
-        print(f"Attempt {attempt+1}/6...")
+    for attempt in range(4):
+        print(f"Attempt {attempt+1}/4...")
         try:
-            res = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
+            res = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers, json=payload, timeout=60
+            )
         except Exception as e:
             print(f"Request failed: {e}")
-            time.sleep(20)
+            time.sleep(10)
             continue
 
         if res.status_code == 429:
-            wait = 20 + (attempt * 15)
-            print(f"Rate limited (429), waiting {wait}s...")
+            wait = 15 + (attempt * 10)
+            print(f"Rate limited, waiting {wait}s...")
             time.sleep(wait)
             continue
 
         res.raise_for_status()
-        text = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        text = res.json()["choices"][0]["message"]["content"].strip()
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'^```\s*', '', text)
         text = re.sub(r'\s*```$', '', text).strip()
         return json.loads(text)
 
-    raise Exception("Gemini API rate limit exceeded after 6 attempts")
+    raise Exception("Failed after 4 attempts")
 
 SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
          "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
@@ -78,5 +86,5 @@ if __name__ == "__main__":
     week_label = get_week_label()
     print(f"Generating horoscopes for: {week_label}")
     readings = generate_horoscopes(week_label)
-    print("Gemini response OK:", list(readings.keys()))
+    print("Groq response OK:", list(readings.keys()))
     inject(readings, week_label)
