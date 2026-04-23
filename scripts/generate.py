@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 def get_week_label():
     mdt = datetime.now(ZoneInfo("America/Edmonton"))
     days_back = (mdt.weekday() - 3) % 7
-    thursday = mdt - timedelta(days=days_back)
+    thursday = mdt - timedelta(days=days_back) + timedelta(weeks=1)
     sunday = thursday + timedelta(days=6)
     fmt = lambda d: d.strftime("%b %-d")
     return f"{fmt(thursday)} – {fmt(sunday)}"
