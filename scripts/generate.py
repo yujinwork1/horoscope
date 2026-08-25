@@ -2,13 +2,17 @@ import os, json, re, time, requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+MODEL = "openai/gpt-oss-120b"
+
+
 def get_week_label():
     mdt = datetime.now(ZoneInfo("America/Edmonton"))
     days_back = (mdt.weekday() - 3) % 7
-    thursday = mdt - timedelta(days=days_back) + timedelta(weeks=1)
+    thursday = mdt - timedelta(days=days_back)
     sunday = thursday + timedelta(days=6)
     fmt = lambda d: d.strftime("%b %-d")
     return f"{fmt(thursday)} – {fmt(sunday)}"
+
 
 def generate_horoscopes(week_label):
     api_key = os.environ["GROQ_API_KEY"]
@@ -19,6 +23,7 @@ Rules:
 - Each reading must be exactly 2 sentences (30-50 words total)
 - Tone: mystical, warm, encouraging, slightly poetic
 - Reference celestial bodies (planets, moon phases) naturally
+- Each sign must feel distinct — vary the imagery, do not reuse the same opening or the same celestial body across signs
 - Keep it general enough to resonate widely
 - No doom or negativity — uplifting and empowering
 
@@ -30,14 +35,17 @@ Return ONLY valid JSON, no markdown, no code blocks:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.9,
-        "max_tokens": 1500
+        "max_tokens": 4000,
+        "reasoning_effort": "low",
+        "reasoning_format": "hidden",
+        "response_format": {"type": "json_object"}
     }
 
     for attempt in range(4):
-        print(f"Attempt {attempt+1}/4...")
+        print(f"Attempt {attempt+1}/4 (model: {MODEL})...")
         try:
             res = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -54,7 +62,12 @@ Return ONLY valid JSON, no markdown, no code blocks:
             time.sleep(wait)
             continue
 
-        res.raise_for_status()
+        if res.status_code >= 400:
+            # 모델 종료/키 만료 등은 재시도해도 소용없으니 에러 본문을 그대로 출력
+            print(f"HTTP {res.status_code} — response body:")
+            print(res.text[:1000])
+            res.raise_for_status()
+
         text = res.json()["choices"][0]["message"]["content"].strip()
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'^```\s*', '', text)
@@ -63,15 +76,21 @@ Return ONLY valid JSON, no markdown, no code blocks:
 
     raise Exception("Failed after 4 attempts")
 
-SIGNS = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-         "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
+
+SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+         "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+
 
 def inject(readings, week_label):
+    missing = [s for s in SIGNS if not readings.get(s)]
+    if missing:
+        raise Exception(f"Missing readings for: {missing}")
+
     with open("index.html", "r") as f:
         html = f.read()
     html = re.sub(r'(id="weekBadge"[^>]*>)([^<]*)', f'\\1✦ {week_label} ✦', html)
     for sign in SIGNS:
-        reading = readings.get(sign, "")
+        reading = readings[sign]
         reading_escaped = reading.replace('"', '&quot;')
         html = re.sub(
             rf'(<div class="hs-reading" data-sign="{sign}">)[^<]*(</div>)',
@@ -81,6 +100,7 @@ def inject(readings, week_label):
     with open("index.html", "w") as f:
         f.write(html)
     print(f"✦ Updated horoscope for {week_label}")
+
 
 if __name__ == "__main__":
     week_label = get_week_label()
