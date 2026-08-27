@@ -11,7 +11,19 @@ def get_week_label():
     thursday = mdt - timedelta(days=days_back)
     sunday = thursday + timedelta(days=6)
     fmt = lambda d: d.strftime("%b %-d")
-    return f"{fmt(thursday)} – {fmt(sunday)}"
+    return f"{fmt(thursday)} - {fmt(sunday)}".replace("-", "\u2013")
+
+
+def extract_json(text):
+    """모델이 앞뒤에 설명이나 코드블록을 붙여도 JSON 부분만 뽑아낸다."""
+    text = text.strip()
+    text = re.sub(r'^```(?:json)?\s*', '', text)
+    text = re.sub(r'\s*```$', '', text).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError(f"No JSON object found in response: {text[:300]}")
+    return json.loads(text[start:end + 1])
 
 
 def generate_horoscopes(week_label):
@@ -23,11 +35,11 @@ Rules:
 - Each reading must be exactly 2 sentences (30-50 words total)
 - Tone: mystical, warm, encouraging, slightly poetic
 - Reference celestial bodies (planets, moon phases) naturally
-- Each sign must feel distinct — vary the imagery, do not reuse the same opening or the same celestial body across signs
+- Each sign must feel distinct - vary the imagery, do not reuse the same opening or the same celestial body across signs
 - Keep it general enough to resonate widely
-- No doom or negativity — uplifting and empowering
+- No doom or negativity - uplifting and empowering
 
-Return ONLY valid JSON, no markdown, no code blocks:
+Return ONLY a valid JSON object, no markdown, no code blocks, no commentary:
 {{"Aries":"...","Taurus":"...","Gemini":"...","Cancer":"...","Leo":"...","Virgo":"...","Libra":"...","Scorpio":"...","Sagittarius":"...","Capricorn":"...","Aquarius":"...","Pisces":"..."}}"""
 
     headers = {
@@ -39,9 +51,7 @@ Return ONLY valid JSON, no markdown, no code blocks:
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.9,
         "max_tokens": 4000,
-        "reasoning_effort": "low",
-        "reasoning_format": "hidden",
-        "response_format": {"type": "json_object"}
+        "reasoning_effort": "low"
     }
 
     for attempt in range(4):
@@ -49,7 +59,7 @@ Return ONLY valid JSON, no markdown, no code blocks:
         try:
             res = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers=headers, json=payload, timeout=60
+                headers=headers, json=payload, timeout=90
             )
         except Exception as e:
             print(f"Request failed: {e}")
@@ -63,16 +73,22 @@ Return ONLY valid JSON, no markdown, no code blocks:
             continue
 
         if res.status_code >= 400:
-            # 모델 종료/키 만료 등은 재시도해도 소용없으니 에러 본문을 그대로 출력
-            print(f"HTTP {res.status_code} — response body:")
-            print(res.text[:1000])
+            print(f"HTTP {res.status_code} - response body:")
+            print(res.text[:1500])
             res.raise_for_status()
 
-        text = res.json()["choices"][0]["message"]["content"].strip()
-        text = re.sub(r'^```json\s*', '', text)
-        text = re.sub(r'^```\s*', '', text)
-        text = re.sub(r'\s*```$', '', text).strip()
-        return json.loads(text)
+        data = res.json()
+        msg = data["choices"][0]["message"]
+        text = (msg.get("content") or "").strip()
+
+        if not text:
+            print("Empty content. Full message object:")
+            print(json.dumps(msg)[:1500])
+            print(f"finish_reason: {data['choices'][0].get('finish_reason')}")
+            time.sleep(5)
+            continue
+
+        return extract_json(text)
 
     raise Exception("Failed after 4 attempts")
 
@@ -88,7 +104,7 @@ def inject(readings, week_label):
 
     with open("index.html", "r") as f:
         html = f.read()
-    html = re.sub(r'(id="weekBadge"[^>]*>)([^<]*)', f'\\1✦ {week_label} ✦', html)
+    html = re.sub(r'(id="weekBadge"[^>]*>)([^<]*)', f'\\1\u2726 {week_label} \u2726', html)
     for sign in SIGNS:
         reading = readings[sign]
         reading_escaped = reading.replace('"', '&quot;')
@@ -99,7 +115,7 @@ def inject(readings, week_label):
         )
     with open("index.html", "w") as f:
         f.write(html)
-    print(f"✦ Updated horoscope for {week_label}")
+    print(f"\u2726 Updated horoscope for {week_label}")
 
 
 if __name__ == "__main__":
